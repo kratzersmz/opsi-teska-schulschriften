@@ -1,0 +1,145 @@
+; Copyright (c) uib gmbh (www.uib.de)
+; This sourcecode is owned by uib
+; and published under the Terms of the General Public License.
+; credits: http://www.opsi.org/en/credits/
+
+[Actions]
+requiredWinstVersion >= "4.11.2.6"
+
+DefVar $MsiId$
+DefVar $UninstallProgram$
+DefVar $LogDir$
+DefVar $ProductId$  
+DefVar $MinimumSpace$
+DefVar $InstallDir$
+DefVar $ExitCode$
+DefVar $LicenseRequired$
+DefVar $LicenseKey$
+DefVar $LicensePool$
+DefVar $InstPrg$
+DefVar $TmpPath$
+
+Set $LogDir$ = "%SystemDrive%\tmp"
+
+; ----------------------------------------------------------------
+; - Please edit the following values                             -
+; ----------------------------------------------------------------
+Set $ProductId$       = "Schulschriften"
+Set $MinimumSpace$    = "10 MB"
+; the path were we find the product after the installation
+Set $InstallDir$      = "%ProgramFiles32Dir%\<path to the product>"
+Set $LicenseRequired$ = "false"
+Set $LicensePool$     = "p_" + $ProductId$
+Set $InstPrg$         = "FontReg.exe"
+Set $TmpPath$         = "%Systemdrive%\temp"
+; ----------------------------------------------------------------
+
+if not(HasMinimumSpace ("%SystemDrive%", $MinimumSpace$))
+   LogError "Not enough space on %SystemDrive%, " + $MinimumSpace$ + " on drive %SystemDrive% needed for " + $ProductId$
+   isFatalError "No Space"
+   ; Stop process and set installation status to failed
+else
+   comment "Show product picture"
+   ShowBitmap "%ScriptPath%\" + $ProductId$ + ".png" $ProductId$
+   
+   if FileExists("%ScriptPath%\delsub32.ins")
+      comment "Start uninstall sub section"
+      Sub "%ScriptPath%\delsub32.ins"
+   endif
+   
+   Message "Installing " + $ProductId$ + " ..."
+   
+   if $LicenseRequired$ = "true"
+      comment "Licensing required, reserve license and get license key"
+      Sub_get_licensekey
+   endif
+
+   DosInAnIcon_setpolicy winst /SysNative
+	DosInAnIcon_removal winst /SysNative
+	DosInAnIcon_install winst /SysNative
+     
+   comment "Start setup program"
+    Files_install
+    DosInAnIcon_setpolicy
+	comment "Start setup program"
+	DosInAnIcon_removal
+    DosInAnIcon_install
+
+   ;Files_install
+   ;DosInAnIcon_do /64Bit
+   ;Files_uninstall   
+
+endif
+
+
+
+[Files_install]
+copy -s %ScriptPath%\*.* c:\tmp\
+;copy -s %ScriptPath%\fonts\ c:\tmp\fonts\fonts
+
+[DosInAnIcon_setpolicy]
+powershell.exe Unblock-File c:\tmp\install.ps1
+powershell.exe Unblock-File c:\tmp\remove.ps1
+
+[ExecWith_powershell_hoff]
+set-executionpolicy unrestricted
+Get-ChildItem c:\tmp\fonts\*.ttf | Select-Object -ExpandProperty Name | ForEach-Object { c:\tmp\remove.ps1 -file $PSItem }
+if ($?) {Exit(0)}
+else {Exit(1)}
+
+
+[DosInAnIcon_removal]
+echo "removal of fonts ..."
+powershell.exe -ep bypass -file c:\tmp\remove.ps1 C:\tmp\fonts
+
+[DosInAnIcon_install]
+echo "installing ..."
+powershell.exe -ep bypass -file c:\tmp\install.ps1 -path C:\tmp\fonts
+
+
+[DosInAnIcon_do]
+cd $TmpPath$\fonts
+$InstPrg$ $TmpPath$\fonts
+%ScriptPath%\FontReg.exe %ScriptPath%\fonts
+%ScriptPath%\FontReg.exe $TmpPath$\fonts
+
+
+[Files_uninstall]
+rem del -sf "$TmpPath$\"
+
+[Sub_get_licensekey]
+if opsiLicenseManagementEnabled
+   comment "License management is enabled and will be used"
+
+   comment "Trying to get a license key"
+   Set $LicenseKey$ = demandLicenseKey ($LicensePool$)
+   ; If there is an assignment of exactly one licensepool to the product the following call is possible:
+   ; Set $LicenseKey$ = demandLicenseKey ("", $ProductId$)
+   ;
+   ; If there is an assignment of a license pool to a windows software id, it is possible to use:
+   ; DefVar $WindowsSoftwareId$
+   ; $WindowsSoftwareId$ = "..."
+   ; Set $LicenseKey$ = demandLicenseKey ("", "", $WindowsSoftwareId$)
+   
+   DefVar $ServiceErrorClass$
+   set $ServiceErrorClass$ = getLastServiceErrorClass
+   comment "Error class: " + $ServiceErrorClass$
+   
+   if $ServiceErrorClass$ = "None"
+      comment "Everything fine, we got the license key '" + $LicenseKey$ + "'"
+   else
+      if $ServiceErrorClass$ = "LicenseConfigurationError"
+         LogError "Fatal: license configuration must be corrected"
+         LogError getLastServiceErrorMessage
+         isFatalError
+      else 
+         if $ServiceErrorClass$ = "LicenseMissingError"
+            LogError "Fatal: required license is not supplied"
+            isFatalError
+         endif
+      endif
+   endif
+else
+   LogError "Fatal: license required, but license management not enabled"
+   isFatalError
+endif
