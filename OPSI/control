@@ -4,8 +4,8 @@ depends:
 
 [Product]
 type: localboot
-id: schulschriften
-name: Generelle Schulschriften
+id: teska-schulschriften
+name: teska-schulschriften
 description: Generelle Schulschriften
 advice:
 version: 1.0
